@@ -1,0 +1,21 @@
+Name:                pkgbrowser
+Version:             0.1
+Synopsis:            Local haskell packages browser
+Description:         Browse local haskell package documentation.
+License:             BSD3
+License-file:        LICENSE
+Author:              Vincent Hanquez
+Maintainer:          vincent@snarc.org
+Category:            Documentation
+Build-Type:          Simple
+Cabal-Version:       >=1.6
+
+Executable PkgBrowser
+  Main-Is:           PkgBrowser.hs
+  Build-depends:     base >= 3 && < 5
+                   , gtk
+                   , cairo
+                   , webkit
+                   , process
+                   , directory
+  Buildable:         True
