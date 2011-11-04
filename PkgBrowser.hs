@@ -1,4 +1,5 @@
-import Data.Char
+import Control.Monad.Trans
+import Data.Char hiding (Control)
 import Data.List (sortBy)
 import Graphics.UI.Gtk
 import Graphics.UI.Gtk.WebKit.WebView
@@ -108,6 +109,11 @@ main = do
 			then webViewLoadUri wv ("file://" ++ filepath)
 			else webViewLoadUri wv ("http://hackage.haskell.org/package/" ++ v)
 		)
+	window `on` keyPressEvent $ tryEvent $ do
+		[Control] <- eventModifier
+		"q"       <- eventKeyName
+		liftIO mainQuit
+
 	on pkgCombo changed (do
 		i <- comboBoxGetActive pkgCombo
 		listStoreClear store
