@@ -14,7 +14,6 @@ Executable PkgBrowser
   Main-Is:           PkgBrowser.hs
   Build-depends:     base >= 3 && < 5
                    , gtk
-                   , cairo
                    , webkit
                    , process
                    , directory
