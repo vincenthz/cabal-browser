@@ -1,12 +1,15 @@
 import Control.Monad.Trans
 import Data.Char hiding (Control)
-import Data.List (sortBy)
+import Data.List (sortBy, groupBy)
 import Graphics.UI.Gtk
 import Graphics.UI.Gtk.WebKit.WebView
+import Graphics.UI.Gtk.ModelView as New
 import System.Environment
 import System.IO
 import System.Process
 import System.Directory
+
+import Data.Tree
 
 pkgCats = [ "All Packages", "User Packages", "System Packages", "Favorites" ]
 
@@ -40,10 +43,17 @@ setupView view model = do
 	treeViewColumnSetTitle col "Package"
 	treeViewAppendColumn view col
 
-modelRefresh model l = do
-	mapM_ (listStoreAppend model) l
+modelRefresh model l = treeStoreInsertForest model [] 0 l
 
 sortCI = sortBy (\a b -> compare (map toLower a) (map toLower b))
+
+makeForest pkgs =
+	map (\(n, l) -> Node { rootLabel = [n], subForest = map toLeaf $ sortCI l }) $
+	map (\l -> (fst (head l), map snd l)) $
+	groupBy (\a b -> fst a == fst b) $
+	map (\x -> (toUpper $ head x,x)) $ sortCI pkgs
+	where
+		toLeaf x = Node { rootLabel = x, subForest = [] }
 
 main :: IO ()
 main = do
@@ -86,11 +96,12 @@ main = do
 
 	panedAdd1 hpaned vboxl
 	panedAdd2 hpaned swwv
+	panedSetPosition hpaned 300
 
 	boxPackStart vbox mbar PackNatural 0
 	boxPackStart vbox hpaned PackGrow 0
 
-	store <- listStoreNew (sortCI pkgs)
+	store <- treeStoreNew $ makeForest pkgs
 	treeViewSetModel view store
 	setupView view store
 
@@ -99,12 +110,12 @@ main = do
 	onDestroy window mainQuit
 	onClicked btHome (webViewLoadUri wv url)
 	onRowActivated view (\treepath _ -> do
-		let idx = head treepath
-		v <- listStoreGetValue store idx
+		v <- treeStoreGetValue store treepath
 		x <- listField v "haddock-html"
 		let filepath = x ++ "/index.html"
 
 		exists <- doesDirectoryExist filepath
+		exists <- return True
 		if exists
 			then webViewLoadUri wv ("file://" ++ filepath)
 			else webViewLoadUri wv ("http://hackage.haskell.org/package/" ++ v)
@@ -116,11 +127,11 @@ main = do
 
 	on pkgCombo changed (do
 		i <- comboBoxGetActive pkgCombo
-		listStoreClear store
+		treeStoreClear store
 		case i of
-			2 -> listSystemPackages >>= modelRefresh store . sortCI
-			1 -> listUserPackages   >>= modelRefresh store . sortCI
-			_ -> listAllPackages    >>= modelRefresh store . sortCI
+			2 -> listSystemPackages >>= modelRefresh store . makeForest
+			1 -> listUserPackages   >>= modelRefresh store . makeForest
+			_ -> listAllPackages    >>= modelRefresh store . makeForest
 		)
 
 	widgetShowAll window

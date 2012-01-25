@@ -16,6 +16,7 @@ Executable PkgBrowser
                    , gtk
                    , webkit
                    , process
+                   , containers
                    , directory
                    , mtl
   Buildable:         True
