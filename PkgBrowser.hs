@@ -72,7 +72,10 @@ main = do
 	wv     <- webViewNew
 	mbar   <- toolbarNew
 	hpaned <- hPanedNew
-	btHome <- toolbarInsertNewButton mbar 0 stockHome Nothing
+	btHome <- toolButtonNewFromStock stockHome
+	toolbarInsert mbar btHome 0
+	btConnect <- toggleToolButtonNewFromStock stockConnect
+	toolbarInsert mbar btConnect 1
 	view   <- treeViewNew
 	pkgCombo <- comboBoxNew
 
@@ -108,7 +111,7 @@ main = do
 	webViewLoadUri wv url
 
 	onDestroy window mainQuit
-	onClicked btHome (webViewLoadUri wv url)
+	onToolButtonClicked btHome (webViewLoadUri wv url)
 	onRowActivated view (\treepath _ -> do
 		v <- treeStoreGetValue store treepath
 		x <- listField v "haddock-html"
