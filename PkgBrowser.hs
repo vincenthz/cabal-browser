@@ -1,6 +1,8 @@
+{-# LANGUAGE ViewPatterns #-}
 import Control.Monad.Trans
 import Data.Char hiding (Control)
-import Data.List (sortBy, groupBy)
+import Data.List (sort,sortBy, groupBy, unfoldr, intercalate)
+import Control.Arrow (second)
 import Graphics.UI.Gtk
 import Graphics.UI.Gtk.WebKit.WebView
 import Graphics.UI.Gtk.ModelView as New
@@ -9,29 +11,59 @@ import System.IO
 import System.Process
 import System.Directory
 
+import Data.IORef
 import Data.Tree
 
 pkgCats = [ "All Packages", "User Packages", "System Packages", "Favorites" ]
 
-listAllPackages :: IO [String]
+type PackageVersion = [Integer]
+type PackageDescOne = (String,PackageVersion)
+data PackageDesc = PackageDesc
+	{ pdescName     :: String
+	, pdescVersions :: [PackageVersion]
+	} deriving (Show,Eq)
+
+listUnmarshall :: String -> [Tree String]
+listUnmarshall s = makeForest $ groupByName $ map toDesc $ sortCI $ words s where
+	toDesc :: String -> PackageDescOne
+	toDesc package = case reverse $ splitOn '-' $ package of
+		(ver:r) -> (intercalate "-" $ reverse r, map read $ splitOn '.' ver)
+		_       -> (package, [])
+	groupByName :: [PackageDescOne] -> [PackageDesc]
+	groupByName = map (\l -> PackageDesc (fst $ head l) (reverse $ sort $ map snd l)) . groupBy (\a b -> fst a == fst b)
+	splitOn delim = takeWhile (not . null) . unfoldr (Just . (second $ drop 1) . break (==delim))
+
 listAllPackages = do
 	(_, out, _) <- readProcessWithExitCode "ghc-pkg" [ "list", "--simple-output" ] ""
-	return $ words out
+	return $ listUnmarshall out
 
-listUserPackages :: IO [String]
 listUserPackages = do
 	(_, out, _) <- readProcessWithExitCode "ghc-pkg" [ "list", "--user", "--simple-output" ] ""
-	return $ words out
+	return $ listUnmarshall out
 
-listSystemPackages :: IO [String]
 listSystemPackages = do
 	(_, out, _) <- readProcessWithExitCode "ghc-pkg" [ "list", "--global", "--simple-output" ] ""
-	return $ words out
+	return $ listUnmarshall out
 
 listField :: String -> String -> IO String
 listField package field = do
 	(_, out, _) <- readProcessWithExitCode "ghc-pkg" [ "field", package, field ] ""
 	return $ drop 2 $ snd $ break ((==) ':') out
+
+makeForest :: [PackageDesc] -> [Tree String]
+makeForest pkgs =
+	map (\(n, l) -> Node { rootLabel = [n], subForest = map toPackage l }) $
+	groupByAlphabet pkgs
+	where
+		groupByAlphabet :: [PackageDesc] -> [(Char, [PackageDesc])]
+		groupByAlphabet =
+			map (\l -> (fst (head l), map snd l)) .
+			groupBy (\a b -> fst a == fst b) .
+			map (\pdesc -> (toUpper $ head $ pdescName pdesc,pdesc))
+		toPackage (PackageDesc name ver) = Node { rootLabel = name, subForest = map (toLeaf . intercalate "." . map show) ver }
+		toLeaf x = Node { rootLabel = x, subForest = [] }
+
+sortCI = sortBy (\a b -> compare (map toLower a) (map toLower b))
 
 setupView view model = do
 	treeViewSetHeadersVisible view False
@@ -45,19 +77,21 @@ setupView view model = do
 
 modelRefresh model l = treeStoreInsertForest model [] 0 l
 
-sortCI = sortBy (\a b -> compare (map toLower a) (map toLower b))
+loadHaddock disconnectedVar wv name ver = do
+	let v = name ++ "-" ++ ver
+	x <- listField v "haddock-html"
+	let filepath = x ++ "/index.html"
 
-makeForest pkgs =
-	map (\(n, l) -> Node { rootLabel = [n], subForest = map toLeaf $ sortCI l }) $
-	map (\l -> (fst (head l), map snd l)) $
-	groupBy (\a b -> fst a == fst b) $
-	map (\x -> (toUpper $ head x,x)) $ sortCI pkgs
-	where
-		toLeaf x = Node { rootLabel = x, subForest = [] }
+	--exists <- doesDirectoryExist filepath
+	disconnected <- readIORef disconnectedVar
+	if disconnected
+		then webViewLoadUri wv ("file://" ++ filepath)
+		else webViewLoadUri wv ("http://hackage.haskell.org/package/" ++ v)
 
 main :: IO ()
 main = do
 	pkgs <- listAllPackages
+	disconnectedVar <- newIORef False
 
 	home <- getEnv "HOME"
 	let url = "file://" ++ home ++ "/.cabal/share/doc/index.html"
@@ -104,7 +138,7 @@ main = do
 	boxPackStart vbox mbar PackNatural 0
 	boxPackStart vbox hpaned PackGrow 0
 
-	store <- treeStoreNew $ makeForest pkgs
+	store <- treeStoreNew pkgs
 	treeViewSetModel view store
 	setupView view store
 
@@ -112,16 +146,22 @@ main = do
 
 	onDestroy window mainQuit
 	onToolButtonClicked btHome (webViewLoadUri wv url)
-	onRowActivated view (\treepath _ -> do
-		v <- treeStoreGetValue store treepath
-		x <- listField v "haddock-html"
-		let filepath = x ++ "/index.html"
+	onToolButtonToggled btConnect $ do
+		modifyIORef disconnectedVar not
+		disconnected <- readIORef disconnectedVar
+		toolButtonSetStockId btConnect (Just $ if disconnected then stockDisconnect else stockConnect)
 
-		exists <- doesDirectoryExist filepath
-		exists <- return True
-		if exists
-			then webViewLoadUri wv ("file://" ++ filepath)
-			else webViewLoadUri wv ("http://hackage.haskell.org/package/" ++ v)
+	onRowActivated view (\treepath _ -> do
+		case length treepath of
+			2 -> do
+				name <- treeStoreGetValue store treepath
+				ver <- treeStoreGetValue store (treepath ++ [0])
+				loadHaddock disconnectedVar wv name ver
+			3 -> do
+				name <- treeStoreGetValue store $ init treepath
+				ver  <- treeStoreGetValue store treepath
+				loadHaddock disconnectedVar wv name ver
+			_ -> return ()
 		)
 	window `on` keyPressEvent $ tryEvent $ do
 		[Control] <- eventModifier
@@ -132,9 +172,9 @@ main = do
 		i <- comboBoxGetActive pkgCombo
 		treeStoreClear store
 		case i of
-			2 -> listSystemPackages >>= modelRefresh store . makeForest
-			1 -> listUserPackages   >>= modelRefresh store . makeForest
-			_ -> listAllPackages    >>= modelRefresh store . makeForest
+			2 -> listSystemPackages >>= modelRefresh store
+			1 -> listUserPackages   >>= modelRefresh store
+			_ -> listAllPackages    >>= modelRefresh store
 		)
 
 	widgetShowAll window
