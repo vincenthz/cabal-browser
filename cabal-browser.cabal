@@ -1,4 +1,4 @@
-Name:                pkgbrowser
+Name:                cabal-browser
 Version:             0.1
 Synopsis:            Local haskell packages browser
 Description:         Browse local haskell package documentation.
@@ -10,8 +10,8 @@ Category:            Documentation
 Build-Type:          Simple
 Cabal-Version:       >=1.6
 
-Executable PkgBrowser
-  Main-Is:           PkgBrowser.hs
+Executable cabal-browser
+  Main-Is:           Browser.hs
   Build-depends:     base >= 3 && < 5
                    , gtk
                    , webkit
