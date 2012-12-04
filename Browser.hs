@@ -45,10 +45,10 @@ listSystemPackages = do
     (_, out, _) <- readProcessWithExitCode "ghc-pkg" [ "list", "--global", "--simple-output" ] ""
     return $ listUnmarshall out
 
-listField :: String -> String -> IO String
+listField :: String -> String -> IO [String]
 listField package field = do
     (_, out, _) <- readProcessWithExitCode "ghc-pkg" [ "field", package, field ] ""
-    return $ drop 2 $ snd $ break ((==) ':') out
+    return $ map (drop 2 . snd . break ((==) ':')) $ lines out
 
 makeForest :: [PackageDesc] -> [Tree String]
 makeForest pkgs =
@@ -80,7 +80,7 @@ modelRefresh model l = treeStoreInsertForest model [] 0 l
 loadHaddock disconnectedVar wv name ver = do
     let v = name ++ "-" ++ ver
     x <- listField v "haddock-html"
-    let filepath = x ++ "/index.html"
+    let filepath = head x ++ "/index.html"
 
     --exists <- doesDirectoryExist filepath
     disconnected <- readIORef disconnectedVar
